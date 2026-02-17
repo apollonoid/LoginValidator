@@ -24,13 +24,12 @@ func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	if event.EventType != "login_attempt" {
+	if event.EventType != "auth" {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 	select {
 	case h.IngestChan <- event:
-		log.Println("Accepted event", event.EventID)
 		w.WriteHeader(http.StatusAccepted)
 	default:
 		http.Error(w, "event pipeline overloaded", http.StatusTooManyRequests)

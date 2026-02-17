@@ -8,20 +8,20 @@ import (
 )
 
 type Event struct {
-	EventID   uuid.UUID `json:"event_id"`
-	EventType string    `json:"event_type"`
-	Outcome   Outcome   `json:"outcome"`
-	UserID    string    `json:"user_id"`
-	SourceIP  string    `json:"source_ip"`
-	UserAgent string    `json:"user_agent"`
-	Timestamp time.Time `json:"timestamp"`
+	EventID    uuid.UUID `json:"event_id"`
+	EventType  string    `json:"event_type"`
+	Successful Outcome   `json:"outcome"`
+	UserID     string    `json:"user_id"`
+	SourceIP   string    `json:"source_ip"`
+	UserAgent  string    `json:"user_agent"`
+	Timestamp  time.Time `json:"timestamp"`
 }
 
-type Outcome int
+type Outcome bool
 
 const (
-	Failure Outcome = iota
-	Success
+	Failure Outcome = false
+	Success Outcome = true
 )
 
 func (o *Outcome) UnmarshalJSON(b []byte) error {
