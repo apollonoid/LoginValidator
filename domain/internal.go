@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -37,4 +38,15 @@ func (o *Outcome) UnmarshalJSON(b []byte) error {
 	}
 
 	return nil
+}
+
+func (o Outcome) MarshalJSON() ([]byte, error) {
+	switch o {
+	case true:
+		return json.Marshal("success")
+	case false:
+		return json.Marshal("failure")
+	default:
+		return nil, fmt.Errorf("invalid outcome value: %v", o)
+	}
 }

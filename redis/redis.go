@@ -10,7 +10,7 @@ import (
 )
 
 var Rdb *redis.Client
-var ctx context.Context
+var Ctx context.Context
 
 func InitRedis() {
 	Rdb = redis.NewClient(&redis.Options{
@@ -20,8 +20,8 @@ func InitRedis() {
 		Protocol: 2,
 	})
 
-	ctx = context.Background()
-	pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	Ctx = context.Background()
+	pingCtx, cancel := context.WithTimeout(Ctx, 2*time.Second)
 	defer cancel()
 	if err := Rdb.Ping(pingCtx).Err(); err != nil {
 		log.Fatalf("Redis unavailable at %s: %v", Rdb.Options().Addr, err)
@@ -36,8 +36,9 @@ func StoreEvent(event domain.Event) {
 		return
 	}
 	log.Println("Storing event", event.EventID)
-	cmd := Rdb.HSet(ctx,
-		"event:"+event.EventID.String(),
+	key := "event:" + event.EventID.String()
+	cmd := Rdb.HSet(Ctx,
+		key,
 		"event_id", event.EventID.String(),
 		"event_type", event.EventType,
 		"outcome", bool(event.Successful),
@@ -46,6 +47,8 @@ func StoreEvent(event domain.Event) {
 		"user_agent", event.UserAgent,
 		"timestamp", event.Timestamp.Unix(),
 	)
+	// Default expiration of 10 minutes
+	Rdb.Expire(Ctx, key, 10*time.Minute)
 	if err := cmd.Err(); err != nil {
 		log.Println("Redis HSet error:", err)
 	}
