@@ -14,6 +14,7 @@ func Analyze(event domain.Event) {
 	userRapidSuccessfulLogin(event, 8, 1*time.Minute)
 	bruteforceLogin(event, 20, 1*time.Minute)
 	bruteforceLogin(event, 60, 5*time.Minute)
+	credentialStuffing(event, 5, 1*time.Minute)
 }
 
 func userRapidSuccessfulLogin(event domain.Event, threshold int64, window time.Duration) {
