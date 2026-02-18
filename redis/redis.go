@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -47,9 +48,19 @@ func StoreEvent(event domain.Event) {
 		"user_agent", event.UserAgent,
 		"timestamp", event.Timestamp.Unix(),
 	)
-	// Default expiration of 10 minutes
+	recordIP(event)
 	Rdb.Expire(Ctx, key, 10*time.Minute)
 	if err := cmd.Err(); err != nil {
 		log.Println("Redis HSet error:", err)
 	}
+}
+
+func recordIP(event domain.Event) {
+	key := "user:" + event.UserID + ":ips"
+
+	if err := Rdb.SAdd(Ctx, key, event.SourceIP).Err(); err != nil {
+		log.Println("Redis SAdd error:", err)
+		return
+	}
+	domain.Alert(fmt.Sprintf("Login detected from new IP %s for user %s", event.SourceIP, event.UserID))
 }

@@ -27,7 +27,7 @@ const (
 	Success Outcome = true
 )
 
-var FileLogger *log.Logger
+var fileLogger *log.Logger
 
 func InitLogger() {
 	file, err := os.OpenFile(
@@ -39,11 +39,15 @@ func InitLogger() {
 		log.Fatalf("Failed to open log file: %v", err)
 	}
 
-	FileLogger = log.New(
+	fileLogger = log.New(
 		file,
 		"",
 		log.Ldate|log.Ltime|log.Lshortfile,
 	)
+}
+
+func Alert(message string) {
+	fileLogger.Println("ALERT:", message)
 }
 
 func (o *Outcome) UnmarshalJSON(b []byte) error {
