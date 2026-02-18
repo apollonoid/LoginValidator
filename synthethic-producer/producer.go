@@ -15,6 +15,7 @@ import (
 )
 
 func main() {
+	cooldown := 200 * time.Millisecond
 	url := "http://localhost:8080/events"
 	for {
 		event := generateEvent()
@@ -37,7 +38,7 @@ func main() {
 			log.Println("SENT:", string(jsonEvent), "STATUS:", resp.Status)
 			resp.Body.Close()
 		}
-		time.Sleep(20 * time.Second)
+		time.Sleep(cooldown)
 	}
 }
 

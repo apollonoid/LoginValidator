@@ -3,6 +3,8 @@ package domain
 import (
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +26,25 @@ const (
 	Failure Outcome = false
 	Success Outcome = true
 )
+
+var FileLogger *log.Logger
+
+func InitLogger() {
+	file, err := os.OpenFile(
+		"login_validator.log",
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND,
+		0666,
+	)
+	if err != nil {
+		log.Fatalf("Failed to open log file: %v", err)
+	}
+
+	FileLogger = log.New(
+		file,
+		"",
+		log.Ldate|log.Ltime|log.Lshortfile,
+	)
+}
 
 func (o *Outcome) UnmarshalJSON(b []byte) error {
 	s := string(b)
