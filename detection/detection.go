@@ -3,18 +3,76 @@ package detection
 import (
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/apollonoid/LoginValidator/domain"
 	"github.com/apollonoid/LoginValidator/redis"
+	"gopkg.in/yaml.v3"
 )
+
+type Rule struct {
+	Threshold int64         `yaml:"threshold"`
+	Window    time.Duration `yaml:"window"`
+}
+
+type RuleConfig struct {
+	RapidSuccessfulLogin Rule `yaml:"rapid_successful_login"`
+	BruteforceLoginShort Rule `yaml:"bruteforce_login_short"`
+	BruteforceLoginLong  Rule `yaml:"bruteforce_login_long"`
+	CredentialStuffing   Rule `yaml:"credential_stuffing"`
+}
+
+func (r *Rule) UnmarshalYAML(value *yaml.Node) error {
+	type RawRule struct {
+		Threshold int64  `yaml:"threshold"`
+		Window    string `yaml:"window"`
+	}
+
+	var tmp RawRule
+	err := value.Decode(&tmp)
+	if err != nil {
+		return err
+	}
+	r.Threshold = tmp.Threshold
+	window, err := time.ParseDuration(tmp.Window)
+	if err != nil {
+		return err
+	}
+	r.Window = window
+	return nil
+}
+
+var cfg *RuleConfig
+
+func InitRules(path string) {
+	var err error
+	cfg, err = LoadRules(path)
+	if err != nil {
+		domain.Alert(fmt.Sprintf("Error loading rules: %v", err))
+		panic("Fatal error loading rules")
+	}
+}
+
+func LoadRules(path string) (*RuleConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	rulesCfg := RuleConfig{}
+	err = yaml.Unmarshal(data, &rulesCfg)
+	if err != nil {
+		return nil, err
+	}
+	return &rulesCfg, nil
+}
 
 func Analyze(event domain.Event) {
 	redis.StoreEvent(event)
-	userRapidSuccessfulLogin(event, 8, 1*time.Minute)
-	bruteforceLogin(event, 20, 1*time.Minute)
-	bruteforceLogin(event, 60, 5*time.Minute)
-	credentialStuffing(event, 5, 1*time.Minute)
+	userRapidSuccessfulLogin(event, cfg.RapidSuccessfulLogin.Threshold, cfg.RapidSuccessfulLogin.Window)
+	bruteforceLogin(event, cfg.BruteforceLoginLong.Threshold, cfg.BruteforceLoginLong.Window)
+	bruteforceLogin(event, cfg.BruteforceLoginShort.Threshold, cfg.BruteforceLoginShort.Window)
+	credentialStuffing(event, cfg.CredentialStuffing.Threshold, cfg.CredentialStuffing.Window)
 }
 
 func userRapidSuccessfulLogin(event domain.Event, threshold int64, window time.Duration) {
