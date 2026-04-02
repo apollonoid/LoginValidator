@@ -1,5 +1,19 @@
 # LoginValidator
 
+# Security Event Processing System (Go)
+
+This project processes login events in real time and detects suspicious behavior such as brute-force attempts.
+
+## Features
+- Event ingestion (JSON)
+- Redis storage
+- Rule-based detection
+- Prometheus metrics
+- (WIP) Grafana dashboards
+
+## Status
+Work in progress
+
 # Event Schema
 
 {
