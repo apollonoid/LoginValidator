@@ -1,21 +1,31 @@
 # LoginValidator
+Security Event Processing System (Go)
 
-# Security Event Processing System (Go)
+A backend system designed to process authentication events in real time and detect suspicious patterns such as brute-force login attempts.
 
-This project processes login events in real time and detects suspicious behavior such as brute-force attempts.
+## Overview
+This project explores event-driven backend design, focusing on real-time ingestion, asynchronous processing, and rule-based detection.
 
 ## Features
-- Event ingestion (JSON)
-- Redis storage
-- Rule-based detection
-- Prometheus metrics
-- (WIP) Grafana dashboards
+- Real-time event ingestion using JSON payloads
+- Redis-backed storage for event handling and state tracking
+- Rule-based detection for identifying suspicious login behavior
+- Prometheus metrics for observability
+- (WIP) Grafana dashboards for monitoring and visualization
 
-## Status
-Work in progress
+## Tech Stack
+- Go (concurrency with goroutines)
+- Redis
+- Prometheus
 
-# Event Schema
+## Event Flow
+1. Events are ingested via JSON input
+2. Events are stored and processed asynchronously
+3. Detection rules analyze patterns (e.g., repeated failures)
+4. Metrics are exposed for monitoring system behavior
 
+## Event Schema
+```json
 {
   "event_id": "uuid",
   "event_type": "auth",
