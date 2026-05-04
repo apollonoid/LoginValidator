@@ -125,7 +125,10 @@ func LoadRules(path string) (*RuleConfig, error) {
 	if err := yaml.Unmarshal(data, &rawCfg); err != nil {
 		return nil, err
 	}
-	parse := func(r RuleRaw) (Rule, error) {
+	parse := func(name string, r RuleRaw) (Rule, error) {
+		if r.Threshold <= 0 {
+			return Rule{}, fmt.Errorf("%s threshold must be positive", name)
+		}
 		dur, err := time.ParseDuration(r.Window)
 		if err != nil {
 			return Rule{}, err
@@ -134,16 +137,16 @@ func LoadRules(path string) (*RuleConfig, error) {
 	}
 
 	cfg := RuleConfig{}
-	if cfg.RapidSuccessfulLogin, err = parse(rawCfg.RapidSuccessfulLogin); err != nil {
+	if cfg.RapidSuccessfulLogin, err = parse("rapid_successful_login", rawCfg.RapidSuccessfulLogin); err != nil {
 		return nil, err
 	}
-	if cfg.BruteforceLoginShort, err = parse(rawCfg.BruteforceLoginShort); err != nil {
+	if cfg.BruteforceLoginShort, err = parse("bruteforce_login_short", rawCfg.BruteforceLoginShort); err != nil {
 		return nil, err
 	}
-	if cfg.BruteforceLoginLong, err = parse(rawCfg.BruteforceLoginLong); err != nil {
+	if cfg.BruteforceLoginLong, err = parse("bruteforce_login_long", rawCfg.BruteforceLoginLong); err != nil {
 		return nil, err
 	}
-	if cfg.CredentialStuffing, err = parse(rawCfg.CredentialStuffing); err != nil {
+	if cfg.CredentialStuffing, err = parse("credential_stuffing", rawCfg.CredentialStuffing); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
