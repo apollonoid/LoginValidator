@@ -1,16 +1,15 @@
-rules:
-  rapid_successful_login:
-    threshold: 8
+rapid_successful_login:
+  threshold: 8
+  window: 1m
+
+bruteforce_login_short:
+    threshold: 20
     window: 1m
 
-  bruteforce_login:
-    short:
-      threshold: 20
-      window: 1m
-    long:
-      threshold: 60
-      window: 5m
+bruteforce_login_long:
+    threshold: 60
+    window: 5m
 
-  credential_stuffing:
-    threshold: 5
-    window: 1m
+credential_stuffing:
+  threshold: 5
+  window: 1m
