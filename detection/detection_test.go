@@ -1,6 +1,7 @@
 package detection
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,12 +57,32 @@ credential_stuffing:
 }
 
 func TestLoadRulesRejectsInvalidThreshold(t *testing.T) {
-	path := writeRulesFile(t, `
+	tests := []struct {
+		name      string
+		threshold string
+	}{
+		{
+			name:      "negative",
+			threshold: "-20",
+		},
+		{
+			name:      "zero",
+			threshold: "0",
+		},
+		{
+			name:      "non-integer",
+			threshold: "many",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := writeRulesFile(t, fmt.Sprintf(`
   rapid_successful_login:
     threshold: 6
     window: 1m
   bruteforce_login_short:
-    threshold: -20
+    threshold: %s
     window: 1m
   bruteforce_login_long:
     threshold: 60
@@ -69,10 +90,12 @@ func TestLoadRulesRejectsInvalidThreshold(t *testing.T) {
   credential_stuffing:
     threshold: 5
     window: 30s
-	`)
+	`, tt.threshold))
 
-	if _, err := LoadRules(path); err == nil {
-		t.Fatal("LoadRules returned nil error for negative threshold")
+			if _, err := LoadRules(path); err == nil {
+				t.Fatalf("LoadRules returned nil error for %s threshold", tt.name)
+			}
+		})
 	}
 }
 
