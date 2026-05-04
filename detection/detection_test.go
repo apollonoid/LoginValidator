@@ -36,10 +36,30 @@ credential_stuffing:
 }
 
 func TestLoadRulesRejectsInvalidWindow(t *testing.T) {
-	path := writeRulesFile(t, `
+	tests := []struct {
+		name   string
+		window string
+	}{
+		{
+			name:   "negative",
+			window: "-1m",
+		},
+		{
+			name:   "zero",
+			window: "0s",
+		},
+		{
+			name:   "non-duration",
+			window: "nope",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := writeRulesFile(t, fmt.Sprintf(`
 rapid_successful_login:
   threshold: 8
-  window: nope
+  window: %s
 bruteforce_login_short:
   threshold: 20
   window: 1m
@@ -49,10 +69,12 @@ bruteforce_login_long:
 credential_stuffing:
   threshold: 5
   window: 30s
-`)
+`, tt.window))
 
-	if _, err := LoadRules(path); err == nil {
-		t.Fatal("LoadRules returned nil error for invalid duration")
+			if _, err := LoadRules(path); err == nil {
+				t.Fatalf("LoadRules returned nil error for %s window", tt.name)
+			}
+		})
 	}
 }
 

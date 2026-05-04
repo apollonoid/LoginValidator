@@ -133,6 +133,9 @@ func LoadRules(path string) (*RuleConfig, error) {
 		if err != nil {
 			return Rule{}, err
 		}
+		if dur <= 0 {
+			return Rule{}, fmt.Errorf("%s window must be positive", name)
+		}
 		return Rule{Threshold: r.Threshold, WindowDuration: dur}, nil
 	}
 
