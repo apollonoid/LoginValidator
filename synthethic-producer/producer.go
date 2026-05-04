@@ -14,8 +14,14 @@ import (
 	"github.com/mroth/weightedrand/v2"
 )
 
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
 func main() {
-	cooldown := 200 * time.Millisecond
+	const minMS = 100
+	const maxMS = 500
+
 	url := "http://localhost:8080/events"
 	for {
 		event := generateEvent()
@@ -38,6 +44,7 @@ func main() {
 			log.Println("SENT:", string(jsonEvent), "STATUS:", resp.Status)
 			resp.Body.Close()
 		}
+		cooldown := time.Duration(rand.Intn(maxMS-minMS+1)+minMS) * time.Millisecond
 		time.Sleep(cooldown)
 	}
 }
