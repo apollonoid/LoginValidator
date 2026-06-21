@@ -33,6 +33,13 @@ type RuleConfig struct {
 	CredentialStuffing   Rule `yaml:"credential_stuffing"`
 }
 
+const (
+	ruleRapidSuccessfulLogin = "rapid_successful_login"
+	ruleBruteforceLoginShort = "bruteforce_login_short"
+	ruleBruteforceLoginLong  = "bruteforce_login_long"
+	ruleCredentialStuffing   = "credential_stuffing"
+)
+
 var cfg *RuleConfig
 var metricsServerOnce sync.Once
 
@@ -79,7 +86,7 @@ var (
 	)
 )
 
-func InitRules(path string) {
+func InitRules(path, metricsAddr string) {
 	var err error
 	cfg, err = LoadRules(path)
 	if err != nil {
@@ -88,7 +95,7 @@ func InitRules(path string) {
 		panic("Fatal error loading rules")
 	}
 
-	StartMetricsServer(":2112")
+	StartMetricsServer(metricsAddr)
 }
 
 func StartMetricsServer(addr string) {
@@ -97,10 +104,10 @@ func StartMetricsServer(addr string) {
 		mux.Handle("/metrics", promhttp.Handler())
 
 		go func() {
-			detectionsTotal.WithLabelValues("rapid_successful_login").Add(0)
-			detectionsTotal.WithLabelValues("bruteforce_login_short").Add(0)
-			detectionsTotal.WithLabelValues("bruteforce_login_long").Add(0)
-			detectionsTotal.WithLabelValues("credential_stuffing").Add(0)
+			detectionsTotal.WithLabelValues(ruleRapidSuccessfulLogin).Add(0)
+			detectionsTotal.WithLabelValues(ruleBruteforceLoginShort).Add(0)
+			detectionsTotal.WithLabelValues(ruleBruteforceLoginLong).Add(0)
+			detectionsTotal.WithLabelValues(ruleCredentialStuffing).Add(0)
 
 			log.Printf("Prometheus metrics listening on %s/metrics", addr)
 			if err := http.ListenAndServe(addr, mux); err != nil {
@@ -140,19 +147,32 @@ func LoadRules(path string) (*RuleConfig, error) {
 	}
 
 	cfg := RuleConfig{}
-	if cfg.RapidSuccessfulLogin, err = parse("rapid_successful_login", rawCfg.RapidSuccessfulLogin); err != nil {
+	if cfg.RapidSuccessfulLogin, err = parse(ruleRapidSuccessfulLogin, rawCfg.RapidSuccessfulLogin); err != nil {
 		return nil, err
 	}
-	if cfg.BruteforceLoginShort, err = parse("bruteforce_login_short", rawCfg.BruteforceLoginShort); err != nil {
+	if cfg.BruteforceLoginShort, err = parse(ruleBruteforceLoginShort, rawCfg.BruteforceLoginShort); err != nil {
 		return nil, err
 	}
-	if cfg.BruteforceLoginLong, err = parse("bruteforce_login_long", rawCfg.BruteforceLoginLong); err != nil {
+	if cfg.BruteforceLoginLong, err = parse(ruleBruteforceLoginLong, rawCfg.BruteforceLoginLong); err != nil {
 		return nil, err
 	}
-	if cfg.CredentialStuffing, err = parse("credential_stuffing", rawCfg.CredentialStuffing); err != nil {
+	if cfg.CredentialStuffing, err = parse(ruleCredentialStuffing, rawCfg.CredentialStuffing); err != nil {
+		return nil, err
+	}
+	if err := validateRuleConfig(cfg); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+func validateRuleConfig(cfg RuleConfig) error {
+	if cfg.BruteforceLoginShort.WindowDuration > cfg.BruteforceLoginLong.WindowDuration {
+		return fmt.Errorf("%s window must be less than or equal to %s window", ruleBruteforceLoginShort, ruleBruteforceLoginLong)
+	}
+	if cfg.BruteforceLoginShort.Threshold > cfg.BruteforceLoginLong.Threshold {
+		return fmt.Errorf("%s threshold must be less than or equal to %s threshold", ruleBruteforceLoginShort, ruleBruteforceLoginLong)
+	}
+	return nil
 }
 
 func Analyze(event domain.Event) {
@@ -165,8 +185,8 @@ func Analyze(event domain.Event) {
 
 	redis.StoreEvent(event)
 	userRapidSuccessfulLogin(event, cfg.RapidSuccessfulLogin.Threshold, cfg.RapidSuccessfulLogin.WindowDuration)
-	bruteforceLogin(event, cfg.BruteforceLoginLong.Threshold, cfg.BruteforceLoginLong.WindowDuration)
-	bruteforceLogin(event, cfg.BruteforceLoginShort.Threshold, cfg.BruteforceLoginShort.WindowDuration)
+	bruteforceLogin(event, ruleBruteforceLoginShort, cfg.BruteforceLoginShort.Threshold, cfg.BruteforceLoginShort.WindowDuration)
+	bruteforceLogin(event, ruleBruteforceLoginLong, cfg.BruteforceLoginLong.Threshold, cfg.BruteforceLoginLong.WindowDuration)
 	credentialStuffing(event, cfg.CredentialStuffing.Threshold, cfg.CredentialStuffing.WindowDuration)
 }
 
@@ -207,17 +227,17 @@ func userRapidSuccessfulLogin(event domain.Event, threshold int64, window time.D
 				ips,
 			),
 		)
-		detectionsTotal.WithLabelValues("rapid_successful_login").Inc()
+		detectionsTotal.WithLabelValues(ruleRapidSuccessfulLogin).Inc()
 		log.Println("detectionsTotal incremented")
 	}
 }
 
-func bruteforceLogin(event domain.Event, threshold int64, window time.Duration) {
+func bruteforceLogin(event domain.Event, ruleName string, threshold int64, window time.Duration) {
 	if event.Successful {
 		return
 	}
 
-	key := "login:" + event.SourceIP
+	key := bruteForceCounterKey(ruleName, event.SourceIP)
 
 	count, err := redis.Rdb.Incr(redis.Ctx, key).Result()
 	if err != nil {
@@ -225,10 +245,6 @@ func bruteforceLogin(event domain.Event, threshold int64, window time.Duration) 
 		return
 	}
 	redis.Rdb.Expire(redis.Ctx, key, window)
-	ruleName := "bruteforce_login_short"
-	if threshold == cfg.BruteforceLoginLong.Threshold && window == cfg.BruteforceLoginLong.WindowDuration {
-		ruleName = "bruteforce_login_long"
-	}
 	bruteforceAttemptsHistogram.WithLabelValues(ruleName).Observe(float64(count))
 	log.Println("bruteforceAttemptsHistogram Observe")
 	if count >= threshold {
@@ -243,6 +259,10 @@ func bruteforceLogin(event domain.Event, threshold int64, window time.Duration) 
 		detectionsTotal.WithLabelValues(ruleName).Inc()
 		log.Println("detectionsTotal incremented")
 	}
+}
+
+func bruteForceCounterKey(ruleName, sourceIP string) string {
+	return ruleName + ":" + sourceIP
 }
 
 func credentialStuffing(event domain.Event, threshold int64, window time.Duration) {
@@ -268,7 +288,7 @@ func credentialStuffing(event domain.Event, threshold int64, window time.Duratio
 			count,
 			window,
 		))
-		detectionsTotal.WithLabelValues("credential_stuffing").Inc()
+		detectionsTotal.WithLabelValues(ruleCredentialStuffing).Inc()
 		log.Println("detectionsTotal incremented")
 	}
 }

@@ -121,6 +121,64 @@ func TestLoadRulesRejectsInvalidThreshold(t *testing.T) {
 	}
 }
 
+func TestLoadRulesRejectsBruteforceShortWindowLongerThanLongWindow(t *testing.T) {
+	path := writeRulesFile(t, `
+rapid_successful_login:
+  threshold: 8
+  window: 1m
+bruteforce_login_short:
+  threshold: 20
+  window: 10m
+bruteforce_login_long:
+  threshold: 60
+  window: 5m
+credential_stuffing:
+  threshold: 5
+  window: 30s
+`)
+
+	if _, err := LoadRules(path); err == nil {
+		t.Fatal("LoadRules returned nil error when short bruteforce window exceeded long window")
+	}
+}
+
+func TestLoadRulesRejectsBruteforceShortThresholdHigherThanLongThreshold(t *testing.T) {
+	path := writeRulesFile(t, `
+rapid_successful_login:
+  threshold: 8
+  window: 1m
+bruteforce_login_short:
+  threshold: 80
+  window: 1m
+bruteforce_login_long:
+  threshold: 60
+  window: 5m
+credential_stuffing:
+  threshold: 5
+  window: 30s
+`)
+
+	if _, err := LoadRules(path); err == nil {
+		t.Fatal("LoadRules returned nil error when short bruteforce threshold exceeded long threshold")
+	}
+}
+
+func TestBruteforceCounterKeyIncludesRuleName(t *testing.T) {
+	sourceIP := "192.0.2.10"
+	shortKey := bruteForceCounterKey(ruleBruteforceLoginShort, sourceIP)
+	longKey := bruteForceCounterKey(ruleBruteforceLoginLong, sourceIP)
+
+	if shortKey == longKey {
+		t.Fatalf("short and long bruteforce rules share key %q", shortKey)
+	}
+	if shortKey != "bruteforce_login_short:192.0.2.10" {
+		t.Fatalf("short key = %q, want bruteforce_login_short:192.0.2.10", shortKey)
+	}
+	if longKey != "bruteforce_login_long:192.0.2.10" {
+		t.Fatalf("long key = %q, want bruteforce_login_long:192.0.2.10", longKey)
+	}
+}
+
 func TestLoadRulesReturnsErrorForMissingFile(t *testing.T) {
 	if _, err := LoadRules(filepath.Join(t.TempDir(), "missing.yaml")); err == nil {
 		t.Fatal("LoadRules returned nil error for missing file")
