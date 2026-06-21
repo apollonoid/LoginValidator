@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,8 +31,15 @@ const (
 var fileLogger *log.Logger
 
 func InitLogger() {
+	logPath := os.Getenv("LOGIN_VALIDATOR_LOG_PATH")
+	if logPath == "" {
+		logPath = "login_validator.log"
+	}
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		log.Fatalf("Failed to prepare log directory: %v", err)
+	}
 	file, err := os.OpenFile(
-		"login_validator.log",
+		logPath,
 		os.O_CREATE|os.O_WRONLY|os.O_APPEND,
 		0666,
 	)
