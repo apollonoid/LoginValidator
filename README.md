@@ -13,6 +13,13 @@ This project explores event-driven backend design, focusing on real-time ingesti
 - Prometheus metrics for observability
 - (WIP) Grafana dashboards for monitoring and visualization
 
+Environment variables supported by the app:
+
+- `LOGIN_VALIDATOR_REDIS_ADDR`
+- `LOGIN_VALIDATOR_HTTP_ADDR`
+- `LOGIN_VALIDATOR_METRICS_ADDR`
+- `LOGIN_VALIDATOR_RULES_PATH`
+
 ## Tech Stack
 - Go (concurrency with goroutines)
 - Redis
