@@ -13,12 +13,39 @@ This project explores event-driven backend design, focusing on real-time ingesti
 - Prometheus metrics for observability
 - (WIP) Grafana dashboards for monitoring and visualization
 
+## Run with Docker
+
+```bash
+docker compose up --build
+```
+
+The API listens on `http://localhost:8080`, and Prometheus metrics are exposed on `http://localhost:2112/metrics`.
+
 Environment variables supported by the app:
 
 - `LOGIN_VALIDATOR_REDIS_ADDR`
 - `LOGIN_VALIDATOR_HTTP_ADDR`
 - `LOGIN_VALIDATOR_METRICS_ADDR`
 - `LOGIN_VALIDATOR_RULES_PATH`
+
+## Smoke Test
+
+After the stack is up, send a test event:
+
+```bash
+curl -i -X POST http://localhost:8080/events -H 'Content-Type: application/json' -d '{"event_id":"7fe23cfc-62d7-40ea-b80b-721c37b137ad","event_type":"auth","outcome":"success","user_id":"user_1","source_ip":"192.0.2.10","user_agent":"Mozilla/5.0","timestamp":"2026-05-04T12:00:00Z"}'
+```
+
+Expected result:
+
+- HTTP `202 Accepted`
+- event accepted by the ingestion endpoint
+
+To stop the stack:
+
+```bash
+docker compose down
+```
 
 ## Tech Stack
 - Go (concurrency with goroutines)

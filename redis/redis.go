@@ -22,14 +22,25 @@ func InitRedis(addr string) {
 	})
 
 	Ctx = context.Background()
-	pingCtx, cancel := context.WithTimeout(Ctx, 2*time.Second)
-	defer cancel()
-	if err := Rdb.Ping(pingCtx).Err(); err != nil {
+	if err := waitForRedis(5, 2*time.Second); err != nil {
 		log.Fatalf("Redis unavailable at %s: %v", Rdb.Options().Addr, err)
-		Rdb = nil
-		return
 	}
 	log.Println("Redis listening on", Rdb.Options().Addr)
+}
+
+func waitForRedis(attempts int, timeout time.Duration) error {
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		pingCtx, cancel := context.WithTimeout(Ctx, timeout)
+		err := Rdb.Ping(pingCtx).Err()
+		cancel()
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		time.Sleep(1 * time.Second)
+	}
+	return lastErr
 }
 
 func StoreEvent(event domain.Event) {
@@ -64,6 +75,6 @@ func recordIP(event domain.Event) {
 		return
 	}
 	if added == 1 {
-	domain.Alert(fmt.Sprintf("Login detected from new IP %s for user %s", event.SourceIP, event.UserID))
+		domain.Alert(fmt.Sprintf("Login detected from new IP %s for user %s", event.SourceIP, event.UserID))
 	}
 }

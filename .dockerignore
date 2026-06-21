@@ -1,0 +1,8 @@
+.git
+.gitignore
+login_validator.log
+*.log
+tmp
+bin
+coverage.out
+README.md

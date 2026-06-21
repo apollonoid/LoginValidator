@@ -1,0 +1,29 @@
+services:
+  redis:
+    image: redis:7-alpine
+    userns_mode: host
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  login-validator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    userns_mode: host
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      LOGIN_VALIDATOR_REDIS_ADDR: redis:6379
+      LOGIN_VALIDATOR_HTTP_ADDR: :8080
+      LOGIN_VALIDATOR_METRICS_ADDR: :2112
+      LOGIN_VALIDATOR_RULES_PATH: /app/rules.yaml
+    ports:
+      - "8080:8080"
+      - "2112:2112"
+    restart: unless-stopped
