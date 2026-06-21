@@ -58,9 +58,12 @@ func StoreEvent(event domain.Event) {
 func recordIP(event domain.Event) {
 	key := "user:" + event.UserID + ":ips"
 
-	if err := Rdb.SAdd(Ctx, key, event.SourceIP).Err(); err != nil {
+	added, err := Rdb.SAdd(Ctx, key, event.SourceIP).Result()
+	if err != nil {
 		log.Println("Redis SAdd error:", err)
 		return
 	}
+	if added == 1 {
 	domain.Alert(fmt.Sprintf("Login detected from new IP %s for user %s", event.SourceIP, event.UserID))
+	}
 }
