@@ -23,7 +23,10 @@ func InitRedis(addr string) {
 
 	Ctx = context.Background()
 	if err := waitForRedis(5, 2*time.Second); err != nil {
-		log.Fatalf("Redis unavailable at %s: %v", Rdb.Options().Addr, err)
+		addr := Rdb.Options().Addr
+		_ = Rdb.Close()
+		Rdb = nil
+		log.Fatalf("Redis unavailable at %s: %v", addr, err)
 	}
 	log.Println("Redis listening on", Rdb.Options().Addr)
 }
@@ -38,6 +41,7 @@ func waitForRedis(attempts int, timeout time.Duration) error {
 			return nil
 		}
 		lastErr = err
+		log.Printf("Redis ping failed (attempt %d/%d): %v", i+1, attempts, err)
 		time.Sleep(1 * time.Second)
 	}
 	return lastErr
