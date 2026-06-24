@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/apollonoid/LoginValidator/domain"
-	"github.com/apollonoid/LoginValidator/redis"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -18,12 +17,12 @@ import (
 
 type RuleRaw struct {
 	Threshold int64  `yaml:"threshold"`
-	Window    string `yaml:"window"` // string from YAML
+	Window    string `yaml:"window"`
 }
 
 type Rule struct {
 	Threshold      int64
-	WindowDuration time.Duration // parsed
+	WindowDuration time.Duration
 }
 
 type RuleConfig struct {
@@ -33,6 +32,20 @@ type RuleConfig struct {
 	CredentialStuffing   Rule `yaml:"credential_stuffing"`
 }
 
+type RedisOps interface {
+	StoreEvent(domain.Event)
+	AddSetMember(key, member string) (int64, error)
+	SetExpiration(key string, ttl time.Duration) error
+	GetSetCardinality(key string) (int64, error)
+	GetSetMembers(key string) ([]string, error)
+	IncrementCounter(key string) (int64, error)
+}
+
+type Processor struct {
+	Cfg   RuleConfig
+	Redis RedisOps
+}
+
 const (
 	ruleRapidSuccessfulLogin = "rapid_successful_login"
 	ruleBruteforceLoginShort = "bruteforce_login_short"
@@ -40,7 +53,6 @@ const (
 	ruleCredentialStuffing   = "credential_stuffing"
 )
 
-var cfg *RuleConfig
 var metricsServerOnce sync.Once
 
 var (
@@ -86,16 +98,140 @@ var (
 	)
 )
 
-func InitRules(path, metricsAddr string) {
-	var err error
-	cfg, err = LoadRules(path)
-	if err != nil {
-		domain.Alert(fmt.Sprintf("Error loading rules: %s", err.Error()))
-		log.Printf("Error loading rules: %s", err.Error())
-		panic("Fatal error loading rules")
+func NewProcessor(cfg RuleConfig, redisOps RedisOps) *Processor {
+	return &Processor{Cfg: cfg, Redis: redisOps}
+}
+
+func (p *Processor) Analyze(event domain.Event) {
+	if p == nil || p.Redis == nil {
+		log.Println("detection processor is not initialized")
+		return
 	}
 
-	StartMetricsServer(metricsAddr)
+	outcome := "failure"
+	if event.Successful {
+		outcome = "success"
+	}
+	loginAttemptsTotal.WithLabelValues(event.EventType, outcome).Inc()
+	log.Println("loginAttemptsTotal incremented")
+
+	p.Redis.StoreEvent(event)
+	p.userRapidSuccessfulLogin(event)
+	p.bruteforceLogin(event, ruleBruteforceLoginShort, p.Cfg.BruteforceLoginShort)
+	p.bruteforceLogin(event, ruleBruteforceLoginLong, p.Cfg.BruteforceLoginLong)
+	p.credentialStuffing(event)
+}
+
+func (p *Processor) userRapidSuccessfulLogin(event domain.Event) {
+	if !event.Successful {
+		return
+	}
+
+	rule := p.Cfg.RapidSuccessfulLogin
+	key := "successful_login:" + event.UserID
+	if _, err := p.Redis.AddSetMember(key, event.SourceIP); err != nil {
+		log.Println("Redis SAdd error:", err)
+		return
+	}
+	if err := p.Redis.SetExpiration(key, rule.WindowDuration); err != nil {
+		log.Println("Redis Expire error:", err)
+	}
+
+	count, err := p.Redis.GetSetCardinality(key)
+	if err != nil {
+		log.Println("Redis SCARD error:", err)
+		return
+	}
+	rapidLoginIPsHistogram.Observe(float64(count))
+	log.Println("rapidLoginIPsHistogram observe")
+
+	if count >= rule.Threshold {
+		ips, err := p.Redis.GetSetMembers(key)
+		if err != nil {
+			log.Println("Error retrieving login IPs")
+			return
+		}
+		domain.Alert(
+			fmt.Sprintf(
+				"Rapid successful logins detected: %d unique IPs for user '%s' within %s — IPs: %v",
+				count,
+				event.UserID,
+				rule.WindowDuration.String(),
+				ips,
+			),
+		)
+		detectionsTotal.WithLabelValues(ruleRapidSuccessfulLogin).Inc()
+		log.Println("detectionsTotal incremented")
+	}
+}
+
+func (p *Processor) bruteforceLogin(event domain.Event, ruleName string, rule Rule) {
+	if event.Successful {
+		return
+	}
+
+	key := bruteForceCounterKey(ruleName, event.SourceIP)
+
+	count, err := p.Redis.IncrementCounter(key)
+	if err != nil {
+		log.Println("Redis INCR error:", err)
+		return
+	}
+	if err := p.Redis.SetExpiration(key, rule.WindowDuration); err != nil {
+		log.Println("Redis Expire error:", err)
+	}
+	bruteforceAttemptsHistogram.WithLabelValues(ruleName).Observe(float64(count))
+	log.Println("bruteforceAttemptsHistogram Observe")
+	if count >= rule.Threshold {
+		domain.Alert(
+			fmt.Sprintf(
+				"Possible bruteforce login attempts detected: %d attempts from IP %s within %s",
+				count,
+				event.SourceIP,
+				rule.WindowDuration.String(),
+			),
+		)
+		detectionsTotal.WithLabelValues(ruleName).Inc()
+		log.Println("detectionsTotal incremented")
+	}
+}
+
+func bruteForceCounterKey(ruleName, sourceIP string) string {
+	return ruleName + ":" + sourceIP
+}
+
+func (p *Processor) credentialStuffing(event domain.Event) {
+	if event.Successful {
+		return
+	}
+
+	rule := p.Cfg.CredentialStuffing
+	key := "ip_targets:" + event.SourceIP
+
+	if _, err := p.Redis.AddSetMember(key, event.UserID); err != nil {
+		log.Println("Redis SAdd error:", err)
+		return
+	}
+	if err := p.Redis.SetExpiration(key, rule.WindowDuration); err != nil {
+		log.Println("Redis Expire error:", err)
+	}
+
+	count, err := p.Redis.GetSetCardinality(key)
+	if err != nil {
+		log.Println("Redis INCR error:", err)
+		return
+	}
+	credentialStuffingTargetsHistogram.Observe(float64(count))
+	if count >= rule.Threshold {
+		domain.Alert(fmt.Sprintf(
+			"Credential stuffing suspected: IP %s attempted logins against %d different users within %s",
+			event.SourceIP,
+			count,
+			rule.WindowDuration,
+		))
+		detectionsTotal.WithLabelValues(ruleCredentialStuffing).Inc()
+		log.Println("detectionsTotal incremented")
+	}
 }
 
 func StartMetricsServer(addr string) {
@@ -173,122 +309,4 @@ func validateRuleConfig(cfg RuleConfig) error {
 		return fmt.Errorf("%s threshold must be less than or equal to %s threshold", ruleBruteforceLoginShort, ruleBruteforceLoginLong)
 	}
 	return nil
-}
-
-func Analyze(event domain.Event) {
-	outcome := "failure"
-	if event.Successful {
-		outcome = "success"
-	}
-	loginAttemptsTotal.WithLabelValues(event.EventType, outcome).Inc()
-	log.Println("loginAttemptsTotal incremented")
-
-	redis.StoreEvent(event)
-	userRapidSuccessfulLogin(event, cfg.RapidSuccessfulLogin.Threshold, cfg.RapidSuccessfulLogin.WindowDuration)
-	bruteforceLogin(event, ruleBruteforceLoginShort, cfg.BruteforceLoginShort.Threshold, cfg.BruteforceLoginShort.WindowDuration)
-	bruteforceLogin(event, ruleBruteforceLoginLong, cfg.BruteforceLoginLong.Threshold, cfg.BruteforceLoginLong.WindowDuration)
-	credentialStuffing(event, cfg.CredentialStuffing.Threshold, cfg.CredentialStuffing.WindowDuration)
-}
-
-func userRapidSuccessfulLogin(event domain.Event, threshold int64, window time.Duration) {
-	if !event.Successful {
-		return
-	}
-
-	key := "successful_login:" + event.UserID
-	if err := redis.Rdb.SAdd(redis.Ctx, key, event.SourceIP).Err(); err != nil {
-		log.Println("Redis SAdd error:", err)
-		return
-	}
-	if err := redis.Rdb.Expire(redis.Ctx, key, window).Err(); err != nil {
-		log.Println("Redis Expire error:", err)
-	}
-
-	count, err := redis.Rdb.SCard(redis.Ctx, key).Result()
-	if err != nil {
-		log.Println("Redis SCARD error:", err)
-		return
-	}
-	rapidLoginIPsHistogram.Observe(float64(count))
-	log.Println("rapidLoginIPsHistogram observe")
-
-	if count >= threshold {
-		ips, err := redis.Rdb.SMembers(redis.Ctx, key).Result()
-		if err != nil {
-			log.Println("Error retrieving login IPs")
-			return
-		}
-		domain.Alert(
-			fmt.Sprintf(
-				"Rapid successful logins detected: %d unique IPs for user '%s' within %s — IPs: %v",
-				count,
-				event.UserID,
-				window.String(),
-				ips,
-			),
-		)
-		detectionsTotal.WithLabelValues(ruleRapidSuccessfulLogin).Inc()
-		log.Println("detectionsTotal incremented")
-	}
-}
-
-func bruteforceLogin(event domain.Event, ruleName string, threshold int64, window time.Duration) {
-	if event.Successful {
-		return
-	}
-
-	key := bruteForceCounterKey(ruleName, event.SourceIP)
-
-	count, err := redis.Rdb.Incr(redis.Ctx, key).Result()
-	if err != nil {
-		log.Println("Redis INCR error:", err)
-		return
-	}
-	redis.Rdb.Expire(redis.Ctx, key, window)
-	bruteforceAttemptsHistogram.WithLabelValues(ruleName).Observe(float64(count))
-	log.Println("bruteforceAttemptsHistogram Observe")
-	if count >= threshold {
-		domain.Alert(
-			fmt.Sprintf(
-				"Possible bruteforce login attempts detected: %d attempts from IP %s within %s",
-				count,
-				event.SourceIP,
-				window.String(),
-			),
-		)
-		detectionsTotal.WithLabelValues(ruleName).Inc()
-		log.Println("detectionsTotal incremented")
-	}
-}
-
-func bruteForceCounterKey(ruleName, sourceIP string) string {
-	return ruleName + ":" + sourceIP
-}
-
-func credentialStuffing(event domain.Event, threshold int64, window time.Duration) {
-	if event.Successful {
-		return
-	}
-
-	key := "ip_targets:" + event.SourceIP
-
-	redis.Rdb.SAdd(redis.Ctx, key, event.UserID)
-	redis.Rdb.Expire(redis.Ctx, key, window)
-
-	count, err := redis.Rdb.SCard(redis.Ctx, key).Result()
-	if err != nil {
-		log.Println("Redis INCR error:", err)
-		return
-	}
-	credentialStuffingTargetsHistogram.Observe(float64(count))
-	if count >= threshold {
-		domain.Alert(fmt.Sprintf(
-			"Credential stuffing suspected: IP %s attempted logins against %d different users within %s",
-			event.SourceIP,
-			count,
-			window,
-		))
-		detectionsTotal.WithLabelValues(ruleCredentialStuffing).Inc()
-		log.Println("detectionsTotal incremented")
-	}
 }

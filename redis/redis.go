@@ -7,35 +7,46 @@ import (
 	"time"
 
 	"github.com/apollonoid/LoginValidator/domain"
-	"github.com/redis/go-redis/v9"
+	goredis "github.com/redis/go-redis/v9"
 )
 
-var Rdb *redis.Client
-var Ctx context.Context
-
-func InitRedis(addr string) {
-	Rdb = redis.NewClient(&redis.Options{
-		Addr:     addr,
-		Password: "",
-		DB:       0,
-		Protocol: 2,
-	})
-
-	Ctx = context.Background()
-	if err := waitForRedis(5, 2*time.Second); err != nil {
-		addr := Rdb.Options().Addr
-		_ = Rdb.Close()
-		Rdb = nil
-		log.Fatalf("Redis unavailable at %s: %v", addr, err)
-	}
-	log.Println("Redis listening on", Rdb.Options().Addr)
+type Client struct {
+	rdb *goredis.Client
+	ctx context.Context
 }
 
-func waitForRedis(attempts int, timeout time.Duration) error {
+func NewClient(addr string) (*Client, error) {
+	client := &Client{
+		rdb: goredis.NewClient(&goredis.Options{
+			Addr:     addr,
+			Password: "",
+			DB:       0,
+			Protocol: 2,
+		}),
+		ctx: context.Background(),
+	}
+
+	if err := client.waitForRedis(5, 2*time.Second); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("redis unavailable at %s: %w", client.rdb.Options().Addr, err)
+	}
+
+	log.Println("Redis listening on", client.rdb.Options().Addr)
+	return client, nil
+}
+
+func (c *Client) Close() error {
+	if c == nil || c.rdb == nil {
+		return nil
+	}
+	return c.rdb.Close()
+}
+
+func (c *Client) waitForRedis(attempts int, timeout time.Duration) error {
 	var lastErr error
 	for i := 0; i < attempts; i++ {
-		pingCtx, cancel := context.WithTimeout(Ctx, timeout)
-		err := Rdb.Ping(pingCtx).Err()
+		pingCtx, cancel := context.WithTimeout(c.ctx, timeout)
+		err := c.rdb.Ping(pingCtx).Err()
 		cancel()
 		if err == nil {
 			return nil
@@ -47,13 +58,13 @@ func waitForRedis(attempts int, timeout time.Duration) error {
 	return lastErr
 }
 
-func StoreEvent(event domain.Event) {
-	if Rdb == nil {
+func (c *Client) StoreEvent(event domain.Event) {
+	if c == nil || c.rdb == nil {
 		return
 	}
 	log.Println("Storing event", event.EventID)
 	key := "event:" + event.EventID.String()
-	cmd := Rdb.HSet(Ctx,
+	cmd := c.rdb.HSet(c.ctx,
 		key,
 		"event_id", event.EventID.String(),
 		"event_type", event.EventType,
@@ -63,17 +74,52 @@ func StoreEvent(event domain.Event) {
 		"user_agent", event.UserAgent,
 		"timestamp", event.Timestamp.Unix(),
 	)
-	recordIP(event)
-	Rdb.Expire(Ctx, key, 10*time.Minute)
+	c.recordIP(event)
+	c.rdb.Expire(c.ctx, key, 10*time.Minute)
 	if err := cmd.Err(); err != nil {
 		log.Println("Redis HSet error:", err)
 	}
 }
 
-func recordIP(event domain.Event) {
+func (c *Client) AddSetMember(key, member string) (int64, error) {
+	if c == nil || c.rdb == nil {
+		return 0, fmt.Errorf("redis client is not initialized")
+	}
+	return c.rdb.SAdd(c.ctx, key, member).Result()
+}
+
+func (c *Client) SetExpiration(key string, ttl time.Duration) error {
+	if c == nil || c.rdb == nil {
+		return fmt.Errorf("redis client is not initialized")
+	}
+	return c.rdb.Expire(c.ctx, key, ttl).Err()
+}
+
+func (c *Client) GetSetCardinality(key string) (int64, error) {
+	if c == nil || c.rdb == nil {
+		return 0, fmt.Errorf("redis client is not initialized")
+	}
+	return c.rdb.SCard(c.ctx, key).Result()
+}
+
+func (c *Client) GetSetMembers(key string) ([]string, error) {
+	if c == nil || c.rdb == nil {
+		return nil, fmt.Errorf("redis client is not initialized")
+	}
+	return c.rdb.SMembers(c.ctx, key).Result()
+}
+
+func (c *Client) IncrementCounter(key string) (int64, error) {
+	if c == nil || c.rdb == nil {
+		return 0, fmt.Errorf("redis client is not initialized")
+	}
+	return c.rdb.Incr(c.ctx, key).Result()
+}
+
+func (c *Client) recordIP(event domain.Event) {
 	key := "user:" + event.UserID + ":ips"
 
-	added, err := Rdb.SAdd(Ctx, key, event.SourceIP).Result()
+	added, err := c.rdb.SAdd(c.ctx, key, event.SourceIP).Result()
 	if err != nil {
 		log.Println("Redis SAdd error:", err)
 		return
