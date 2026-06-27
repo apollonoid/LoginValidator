@@ -27,3 +27,22 @@ services:
       - "8080:8080"
       - "2112:2112"
     restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus
+    userns_mode: host
+    depends_on:
+      - login-validator
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:

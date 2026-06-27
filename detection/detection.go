@@ -56,12 +56,12 @@ const (
 var metricsServerOnce sync.Once
 
 var (
-	loginAttemptsTotal = promauto.NewCounterVec(
+	loginEventsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "login_attempts_total",
-			Help: "Total number of login attempts processed by the detection engine.",
+			Name: "login_events_total",
+			Help: "Total number of login events processed by the detection engine.",
 		},
-		[]string{"event_type", "outcome"},
+		[]string{"outcome"},
 	)
 
 	detectionsTotal = promauto.NewCounterVec(
@@ -72,29 +72,20 @@ var (
 		[]string{"rule"},
 	)
 
-	rapidLoginIPsHistogram = promauto.NewHistogram(
+	processingDuration = promauto.NewHistogram(
 		prometheus.HistogramOpts{
-			Name:    "login_rapid_success_unique_ips",
-			Help:    "Distribution of unique IP counts observed for rapid successful login evaluation.",
-			Buckets: []float64{1, 2, 5, 10, 20, 50},
+			Name:    "login_processing_duration_seconds",
+			Help:    "Distribution of processor execution times in seconds.",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1},
 		},
 	)
 
-	bruteforceAttemptsHistogram = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "login_bruteforce_attempts",
-			Help:    "Distribution of failed login attempt counts observed during brute force evaluation.",
-			Buckets: []float64{1, 2, 3, 5, 10, 20, 50, 100},
+	systemErrorsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "login_system_errors_total",
+			Help: "Total number of internal system errors observed while processing events.",
 		},
-		[]string{"rule"},
-	)
-
-	credentialStuffingTargetsHistogram = promauto.NewHistogram(
-		prometheus.HistogramOpts{
-			Name:    "login_credential_stuffing_targets",
-			Help:    "Distribution of distinct targeted user counts observed during credential stuffing evaluation.",
-			Buckets: []float64{1, 2, 3, 5, 10, 20, 50, 100},
-		},
+		[]string{"component", "operation"},
 	)
 )
 
@@ -107,13 +98,15 @@ func (p *Processor) Analyze(event domain.Event) {
 		log.Println("detection processor is not initialized")
 		return
 	}
+	start := time.Now()
+	defer processingDuration.Observe(time.Since(start).Seconds())
 
 	outcome := "failure"
 	if event.Successful {
 		outcome = "success"
 	}
-	loginAttemptsTotal.WithLabelValues(event.EventType, outcome).Inc()
-	log.Println("loginAttemptsTotal incremented")
+	loginEventsTotal.WithLabelValues(outcome).Inc()
+	log.Println("loginEventsTotal incremented")
 
 	p.Redis.StoreEvent(event)
 	p.userRapidSuccessfulLogin(event)
@@ -130,24 +123,26 @@ func (p *Processor) userRapidSuccessfulLogin(event domain.Event) {
 	rule := p.Cfg.RapidSuccessfulLogin
 	key := "successful_login:" + event.UserID
 	if _, err := p.Redis.AddSetMember(key, event.SourceIP); err != nil {
+		p.recordSystemError("redis", "sadd")
 		log.Println("Redis SAdd error:", err)
 		return
 	}
 	if err := p.Redis.SetExpiration(key, rule.WindowDuration); err != nil {
+		p.recordSystemError("redis", "expire")
 		log.Println("Redis Expire error:", err)
 	}
 
 	count, err := p.Redis.GetSetCardinality(key)
 	if err != nil {
+		p.recordSystemError("redis", "scard")
 		log.Println("Redis SCARD error:", err)
 		return
 	}
-	rapidLoginIPsHistogram.Observe(float64(count))
-	log.Println("rapidLoginIPsHistogram observe")
 
 	if count >= rule.Threshold {
 		ips, err := p.Redis.GetSetMembers(key)
 		if err != nil {
+			p.recordSystemError("redis", "smembers")
 			log.Println("Error retrieving login IPs")
 			return
 		}
@@ -174,14 +169,14 @@ func (p *Processor) bruteforceLogin(event domain.Event, ruleName string, rule Ru
 
 	count, err := p.Redis.IncrementCounter(key)
 	if err != nil {
+		p.recordSystemError("redis", "incr")
 		log.Println("Redis INCR error:", err)
 		return
 	}
 	if err := p.Redis.SetExpiration(key, rule.WindowDuration); err != nil {
+		p.recordSystemError("redis", "expire")
 		log.Println("Redis Expire error:", err)
 	}
-	bruteforceAttemptsHistogram.WithLabelValues(ruleName).Observe(float64(count))
-	log.Println("bruteforceAttemptsHistogram Observe")
 	if count >= rule.Threshold {
 		domain.Alert(
 			fmt.Sprintf(
@@ -209,19 +204,21 @@ func (p *Processor) credentialStuffing(event domain.Event) {
 	key := "ip_targets:" + event.SourceIP
 
 	if _, err := p.Redis.AddSetMember(key, event.UserID); err != nil {
+		p.recordSystemError("redis", "sadd")
 		log.Println("Redis SAdd error:", err)
 		return
 	}
 	if err := p.Redis.SetExpiration(key, rule.WindowDuration); err != nil {
+		p.recordSystemError("redis", "expire")
 		log.Println("Redis Expire error:", err)
 	}
 
 	count, err := p.Redis.GetSetCardinality(key)
 	if err != nil {
+		p.recordSystemError("redis", "scard")
 		log.Println("Redis INCR error:", err)
 		return
 	}
-	credentialStuffingTargetsHistogram.Observe(float64(count))
 	if count >= rule.Threshold {
 		domain.Alert(fmt.Sprintf(
 			"Credential stuffing suspected: IP %s attempted logins against %d different users within %s",
@@ -234,16 +231,27 @@ func (p *Processor) credentialStuffing(event domain.Event) {
 	}
 }
 
+func (p *Processor) recordSystemError(component, operation string) {
+	systemErrorsTotal.WithLabelValues(component, operation).Inc()
+}
+
 func StartMetricsServer(addr string) {
 	metricsServerOnce.Do(func() {
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", promhttp.Handler())
 
 		go func() {
+			loginEventsTotal.WithLabelValues("success").Add(0)
+			loginEventsTotal.WithLabelValues("failure").Add(0)
 			detectionsTotal.WithLabelValues(ruleRapidSuccessfulLogin).Add(0)
 			detectionsTotal.WithLabelValues(ruleBruteforceLoginShort).Add(0)
 			detectionsTotal.WithLabelValues(ruleBruteforceLoginLong).Add(0)
 			detectionsTotal.WithLabelValues(ruleCredentialStuffing).Add(0)
+			systemErrorsTotal.WithLabelValues("redis", "sadd").Add(0)
+			systemErrorsTotal.WithLabelValues("redis", "expire").Add(0)
+			systemErrorsTotal.WithLabelValues("redis", "scard").Add(0)
+			systemErrorsTotal.WithLabelValues("redis", "smembers").Add(0)
+			systemErrorsTotal.WithLabelValues("redis", "incr").Add(0)
 
 			log.Printf("Prometheus metrics listening on %s/metrics", addr)
 			if err := http.ListenAndServe(addr, mux); err != nil {
