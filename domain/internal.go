@@ -55,6 +55,10 @@ func InitLogger() {
 }
 
 func Alert(message string) {
+	if fileLogger == nil {
+		log.Println("ALERT:", message)
+		return
+	}
 	fileLogger.Println("ALERT:", message)
 }
 
