@@ -1,7 +1,6 @@
 services:
   redis:
     image: redis:7-alpine
-    userns_mode: host
     ports:
       - "6379:6379"
     healthcheck:
@@ -40,9 +39,28 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:Z
       - prometheus-data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana-oss
+    userns_mode: host
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:Z
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:Z
     restart: unless-stopped
 
 volumes:
   prometheus-data:
+  grafana-data:

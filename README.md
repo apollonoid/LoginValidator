@@ -19,7 +19,7 @@ This project explores event-driven backend design, focusing on real-time ingesti
 docker compose up --build
 ```
 
-The API listens on `http://localhost:8080`, Prometheus metrics are exposed on `http://localhost:2112/metrics` and Prometheus is available at `http://localhost:9090`
+The API listens on `http://localhost:8080`, Prometheus metrics are exposed on `http://localhost:2112/metrics`, Prometheus is available at `http://localhost:9090`, and Grafana is available at `http://localhost:3000` with `admin` / `admin`.
 
 Environment variables supported by the app:
 
