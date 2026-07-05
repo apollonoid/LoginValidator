@@ -56,7 +56,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.90, sum(rate(login_processing_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.90, sum(rate(login_processing_duration_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "p90"
         }
       ],
@@ -68,7 +68,7 @@
       },
       "options": {
         "legend": {
-          "displayMode": "hidden",
+          "displayMode": "table",
           "placement": "bottom"
         },
         "tooltip": {
@@ -86,7 +86,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "login_pipeline_queue_depth",
+          "expr": "max_over_time(login_pipeline_queue_depth[$__rate_interval])",
           "legendFormat": "queue depth"
         }
       ],
@@ -98,7 +98,7 @@
       },
       "options": {
         "legend": {
-          "displayMode": "hidden",
+          "displayMode": "table",
           "placement": "bottom"
         },
         "tooltip": {
@@ -116,7 +116,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(login_detection_alerts_total[5m])) by (rule)",
+          "expr": "sum(rate(login_detection_alerts_total[$__rate_interval])) by (rule)",
           "legendFormat": "{{rule}}"
         }
       ],
@@ -146,7 +146,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(login_system_errors_total[5m])) by (component, operation)",
+          "expr": "sum(rate(login_system_errors_total[$__rate_interval])) by (component, operation)",
           "legendFormat": "{{component}}/{{operation}}"
         }
       ],
@@ -170,29 +170,19 @@
     {
       "id": 6,
       "type": "timeseries",
-      "title": "Attack shape intensity (p90)",
+      "title": "Ingest requests by status",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.90, sum(rate(login_bruteforce_attempts_bucket[5m])) by (le, rule))",
-          "legendFormat": "bruteforce {{rule}}"
-        },
-        {
-          "refId": "B",
-          "expr": "histogram_quantile(0.90, sum(rate(login_rapid_success_unique_ips_bucket[5m])) by (le))",
-          "legendFormat": "rapid login unique IPs"
-        },
-        {
-          "refId": "C",
-          "expr": "histogram_quantile(0.90, sum(rate(login_credential_stuffing_targets_bucket[5m])) by (le))",
-          "legendFormat": "credential stuffing targets"
+          "expr": "sum(rate(login_ingest_requests_total[$__rate_interval])) by (status)",
+          "legendFormat": "{{status}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "reqps"
         },
         "overrides": []
       },
