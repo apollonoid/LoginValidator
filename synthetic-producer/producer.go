@@ -113,6 +113,10 @@ func generateRapidSuccessEvent(workerID int) domain.Event {
 		"192.0.2.13",
 		"192.0.2.14",
 		"192.0.2.15",
+		"192.0.2.16",
+		"192.0.2.17",
+		"192.0.2.18",
+		"192.0.2.19",
 	}
 	return generateSuccessfulEvent(userID, ipPool[workerID%len(ipPool)])
 }
@@ -162,21 +166,18 @@ func generateFailureEvent(userID, sourceIP string) domain.Event {
 func sendEvent(client *http.Client, url string, event domain.Event) error {
 	jsonEvent, err := json.Marshal(event)
 	if err != nil {
-		log.Println("Failed to marshal event:", err)
 		return err
 	}
 
 	body := bytes.NewReader(jsonEvent)
 	req, err := http.NewRequest(http.MethodPost, url, body)
 	if err != nil {
-		log.Println("Failed to create request:", err)
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Println("Request failed:", err)
 		return err
 	}
 	defer resp.Body.Close()
