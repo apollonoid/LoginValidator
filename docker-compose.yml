@@ -61,6 +61,16 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards:Z
     restart: unless-stopped
 
+  synthetic-producer:
+    build:
+      context: .
+      dockerfile: synthetic-producer/Dockerfile
+    depends_on:
+      - login-validator
+    environment:
+      LOGIN_VALIDATOR_PRODUCER_URL: http://login-validator:8080/events
+    restart: unless-stopped
+
 volumes:
   prometheus-data:
   grafana-data:
