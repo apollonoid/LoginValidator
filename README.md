@@ -63,10 +63,9 @@ Expected result:
 - HTTP `202 Accepted`
 - the event is accepted by the ingestion endpoint
 
-## Grafana screenshot
-Add the dashboard screenshot here once you capture it:
+## Grafana overview
 
-- `docs/login-validator-overview.png`
+![LoginValidator Grafana dashboard](docs/login-validator-overview.png)
 
 ## Environment variables
 The app reads these variables:
