@@ -99,7 +99,9 @@ func (p *Processor) Analyze(event domain.Event) {
 		return
 	}
 	start := time.Now()
-	defer processingDuration.Observe(time.Since(start).Seconds())
+	defer func() {
+		processingDuration.Observe(time.Since(start).Seconds())
+	}()
 
 	outcome := "failure"
 	if event.Successful {
