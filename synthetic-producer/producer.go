@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/apollonoid/LoginValidator/domain"
@@ -19,34 +20,65 @@ func init() {
 }
 
 func main() {
-	const minMS = 100
-	const maxMS = 500
-
 	url := "http://localhost:8080/events"
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+
+	cycle := 0
 	for {
-		event := generateEvent()
-		jsonEvent, err := json.Marshal(event)
-		if err != nil {
-			log.Println("Failed to Marshal event: ", err)
+		<-ticker.C
+		cycle++
+
+		if cycle%8 == 0 {
+			sendBurst(client, url, 24)
+			time.Sleep(time.Duration(1200+rand.Intn(900)) * time.Millisecond)
 			continue
 		}
-		body := bytes.NewReader(jsonEvent)
-		req, err := http.NewRequest("POST", url, body)
-		if err != nil {
-			log.Println("Failed to create request:", err)
-			continue
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			log.Println("Request failed:", err)
-		} else {
-			log.Println("SENT:", string(jsonEvent), "STATUS:", resp.Status)
-			resp.Body.Close()
-		}
-		cooldown := time.Duration(rand.Intn(maxMS-minMS+1)+minMS) * time.Millisecond
-		time.Sleep(cooldown)
+
+		sendEvent(client, url, generateEvent())
+		time.Sleep(time.Duration(75+rand.Intn(175)) * time.Millisecond)
 	}
+}
+
+func sendBurst(client *http.Client, url string, size int) {
+	var wg sync.WaitGroup
+	wg.Add(size)
+
+	for i := 0; i < size; i++ {
+		go func() {
+			defer wg.Done()
+			sendEvent(client, url, generateEvent())
+		}()
+	}
+
+	wg.Wait()
+}
+
+func sendEvent(client *http.Client, url string, event domain.Event) {
+	jsonEvent, err := json.Marshal(event)
+	if err != nil {
+		log.Println("Failed to Marshal event:", err)
+		return
+	}
+
+	body := bytes.NewReader(jsonEvent)
+	req, err := http.NewRequest("POST", url, body)
+	if err != nil {
+		log.Println("Failed to create request:", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Println("Request failed:", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	log.Println("SENT:", string(jsonEvent), "STATUS:", resp.Status)
 }
 
 func generateEvent() domain.Event {
