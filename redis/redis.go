@@ -62,7 +62,6 @@ func (c *Client) StoreEvent(event domain.Event) {
 	if c == nil || c.rdb == nil {
 		return
 	}
-	log.Println("Storing event", event.EventID)
 	key := "event:" + event.EventID.String()
 	cmd := c.rdb.HSet(c.ctx,
 		key,

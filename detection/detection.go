@@ -106,7 +106,6 @@ func (p *Processor) Analyze(event domain.Event) {
 		outcome = "success"
 	}
 	loginEventsTotal.WithLabelValues(outcome).Inc()
-	log.Println("loginEventsTotal incremented")
 
 	p.Redis.StoreEvent(event)
 	p.userRapidSuccessfulLogin(event)
@@ -156,7 +155,6 @@ func (p *Processor) userRapidSuccessfulLogin(event domain.Event) {
 			),
 		)
 		detectionsTotal.WithLabelValues(ruleRapidSuccessfulLogin).Inc()
-		log.Println("detectionsTotal incremented")
 	}
 }
 
@@ -187,7 +185,6 @@ func (p *Processor) bruteforceLogin(event domain.Event, ruleName string, rule Ru
 			),
 		)
 		detectionsTotal.WithLabelValues(ruleName).Inc()
-		log.Println("detectionsTotal incremented")
 	}
 }
 
@@ -227,7 +224,6 @@ func (p *Processor) credentialStuffing(event domain.Event) {
 			rule.WindowDuration,
 		))
 		detectionsTotal.WithLabelValues(ruleCredentialStuffing).Inc()
-		log.Println("detectionsTotal incremented")
 	}
 }
 
