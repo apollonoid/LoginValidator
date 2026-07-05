@@ -1,5 +1,10 @@
 # LoginValidator
-LoginValidator is a Go backend that ingests auth events, stores short-lived detection state in Redis, evaluates rule-based login abuse patterns, and exports Prometheus metrics for Grafana.
+
+![Go Version](https://img.shields.io/badge/Go-1.25.4-00ADD8?logo=go&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-go%20test%20./...-2ea44f)
+![License](https://img.shields.io/badge/license-MIT-lightgrey)
+
+LoginValidator detects login abuse from auth events in near real time. It ingests events over HTTP, buffers them through an async pipeline, stores short-lived detection state in Redis, evaluates rule-based abuse patterns, and exports Prometheus metrics for Grafana.
 
 ## What it demonstrates
 - real-time HTTP ingestion
@@ -7,6 +12,48 @@ LoginValidator is a Go backend that ingests auth events, stores short-lived dete
 - Redis-backed state for detection windows
 - Prometheus metrics and Grafana dashboards
 - a single-command demo environment
+
+## Architecture
+
+```mermaid
+flowchart LR
+  P[Synthetic producer] --> A[HTTP API]
+  A --> Q[Buffered pipeline]
+  Q --> D[Detection processor]
+  D --> R[(Redis)]
+  D --> M[Prometheus metrics]
+  M --> G[Grafana dashboard]
+```
+
+The API returns `202 Accepted` for accepted auth events so ingestion stays fast and detection work remains asynchronous.
+
+## Detection Rules
+
+- `rapid_successful_login`: counts unique source IPs for a user in a Redis set keyed by `successful_login:<user_id>`.
+- `bruteforce_login_short`: counts failed attempts per source IP with a Redis counter keyed by `bruteforce_login_short:<source_ip>`.
+- `bruteforce_login_long`: counts failed attempts per source IP with a Redis counter keyed by `bruteforce_login_long:<source_ip>`.
+- `credential_stuffing`: counts distinct users targeted by a source IP in a Redis set keyed by `ip_targets:<source_ip>`.
+
+All rules use TTLs so the state expires automatically after the configured window.
+
+## Event Schema
+
+The ingestion endpoint expects JSON with these fields:
+
+- `event_id`: UUID identifying the event
+- `event_type`: event kind, currently `auth` is processed
+- `outcome`: `success` or `failure`
+- `user_id`: user identifier
+- `source_ip`: client IP address
+- `user_agent`: client user agent string
+- `timestamp`: RFC3339 timestamp
+
+Validation behavior:
+
+- non-`POST` requests return `405 Method Not Allowed`
+- invalid JSON returns `400 Bad Request`
+- non-`auth` events are accepted with `202 Accepted` and ignored by detection
+- full pipeline buffers return `429 Too Many Requests`
 
 ## Easiest install
 If Docker is available, this is the fastest path:
@@ -66,6 +113,8 @@ Expected result:
 ## Grafana overview
 
 ![LoginValidator Grafana dashboard](docs/login-validator-overview.png)
+
+If you only want one screenshot asset in the repo, keep `docs/login-validator-overview.png` as the canonical copy.
 
 ## Environment variables
 The app reads these variables:
