@@ -26,6 +26,7 @@ flowchart LR
 ```
 
 The API returns `202 Accepted` for accepted auth events so ingestion stays fast and detection work remains asynchronous.
+See also [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a fuller design note.
 
 ## Detection Rules
 
