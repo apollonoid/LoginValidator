@@ -6,6 +6,23 @@
 
 LoginValidator detects login abuse from auth events in near real time. It ingests events over HTTP, buffers them through an async pipeline, stores short-lived detection state in Redis, evaluates rule-based abuse patterns, and exports Prometheus metrics for Grafana.
 
+## How To Run
+
+1. Start Docker.
+2. Run:
+
+```bash
+docker compose up --build
+```
+
+3. Open:
+
+```text
+http://localhost:3000
+```
+
+4. The dashboard should open automatically.
+
 ## What it demonstrates
 - real-time HTTP ingestion
 - asynchronous pipeline processing
