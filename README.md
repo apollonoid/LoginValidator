@@ -1,71 +1,93 @@
 # LoginValidator
-Security Event Processing System (Go)
+LoginValidator is a Go backend that ingests auth events, stores short-lived detection state in Redis, evaluates rule-based login abuse patterns, and exports Prometheus metrics for Grafana.
 
-A backend system designed to process authentication events in real time and detect suspicious patterns such as brute-force login attempts.
+## What it demonstrates
+- real-time HTTP ingestion
+- asynchronous pipeline processing
+- Redis-backed state for detection windows
+- Prometheus metrics and Grafana dashboards
+- a single-command demo environment
 
-## Overview
-This project explores event-driven backend design, focusing on real-time ingestion, asynchronous processing, and rule-based detection.
-
-## Features
-- Real-time event ingestion using JSON payloads
-- Redis-backed storage for event handling and state tracking
-- Rule-based detection for identifying suspicious login behavior
-- Prometheus metrics for observability
-- (WIP) Grafana dashboards for monitoring and visualization
-
-## Run with Docker
+## Easiest install
+If Docker is available, this is the fastest path:
 
 ```bash
 docker compose up --build
 ```
 
-The API listens on `http://localhost:8080`, Prometheus metrics are exposed on `http://localhost:2112/metrics`, Prometheus is available at `http://localhost:9090`, and Grafana is available at `http://localhost:3000` with `admin` / `admin`.
+That starts:
 
-Environment variables supported by the app:
+- Redis
+- the LoginValidator API on `http://localhost:8080`
+- Prometheus metrics on `http://localhost:2112/metrics`
+- Prometheus on `http://localhost:9090`
+- Grafana on `http://localhost:3000` with `admin` / `admin`
+- a synthetic producer that generates demo traffic
 
-- `LOGIN_VALIDATOR_REDIS_ADDR`
-- `LOGIN_VALIDATOR_HTTP_ADDR`
-- `LOGIN_VALIDATOR_METRICS_ADDR`
-- `LOGIN_VALIDATOR_RULES_PATH`
-
-## Smoke Test
-
-After the stack is up, send a test event:
+## Local helper commands
+For a slightly nicer local workflow, use `make`:
 
 ```bash
-curl -i -X POST http://localhost:8080/events -H 'Content-Type: application/json' -d '{"event_id":"7fe23cfc-62d7-40ea-b80b-721c37b137ad","event_type":"auth","outcome":"success","user_id":"user_1","source_ip":"192.0.2.10","user_agent":"Mozilla/5.0","timestamp":"2026-05-04T12:00:00Z"}'
+make test
+make up
+make demo-load
+make down
+```
+
+Targets:
+
+- `make test` runs the Go test suite
+- `make up` starts the Docker Compose stack
+- `make demo-load` runs the synthetic producer locally
+- `make down` stops the stack
+
+## What to look for
+The demo is most useful when you watch the system in motion:
+
+1. Start the stack.
+2. Open Grafana.
+3. Let the producer run.
+4. Watch detection metrics move.
+
+## Smoke test
+After the stack is up, send one auth event:
+
+```bash
+curl -i -X POST http://localhost:8080/events \
+  -H 'Content-Type: application/json' \
+  -d '{"event_id":"7fe23cfc-62d7-40ea-b80b-721c37b137ad","event_type":"auth","outcome":"success","user_id":"user_1","source_ip":"192.0.2.10","user_agent":"Mozilla/5.0","timestamp":"2026-05-04T12:00:00Z"}'
 ```
 
 Expected result:
 
 - HTTP `202 Accepted`
-- event accepted by the ingestion endpoint
+- the event is accepted by the ingestion endpoint
 
-To stop the stack:
+## Grafana screenshot
+Add the dashboard screenshot here once you capture it:
 
-```bash
-docker compose down
-```
+- `docs/login-validator-overview.png`
 
-## Tech Stack
-- Go (concurrency with goroutines)
-- Redis
-- Prometheus
+## Environment variables
+The app reads these variables:
 
-## Event Flow
-1. Events are ingested via JSON input
-2. Events are stored and processed asynchronously
-3. Detection rules analyze patterns (e.g., repeated failures)
-4. Metrics are exposed for monitoring system behavior
+- `LOGIN_VALIDATOR_REDIS_ADDR`
+- `LOGIN_VALIDATOR_HTTP_ADDR`
+- `LOGIN_VALIDATOR_METRICS_ADDR`
+- `LOGIN_VALIDATOR_RULES_PATH`
+- `LOGIN_VALIDATOR_PRODUCER_URL`
 
-## Event Schema
-```json
-{
-  "event_id": "uuid",
-  "event_type": "auth",
-  "outcome": "success | failure",
-  "user_id": "string",
-  "source_ip": "string",
-  "user_agent": "string",
-  "timestamp": "RFC3339"
-}
+## Test story
+The tests are split into two useful layers:
+
+- a smoke test that covers HTTP ingest through Redis side effects
+- focused unit tests for JSON handling, rule loading, and detection behavior
+
+## Project structure
+- `main.go` wires the runtime together
+- `jsonapi/` handles HTTP ingestion
+- `pipeline/` buffers and dispatches events
+- `detection/` contains the rules, stateful checks, and metrics
+- `redis/` wraps Redis interactions
+- `grafana/` and `prometheus/` contain the observability config
+- `synthetic-producer/` generates demo traffic
