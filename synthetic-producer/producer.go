@@ -28,6 +28,8 @@ const (
 	pressureDuration  = 12 * time.Second
 	recoveryDuration  = 3 * time.Second
 	steadyCycleLength = 20 * time.Second
+
+	maliciousBurstRatio = 5
 )
 
 func init() {
@@ -44,15 +46,21 @@ func main() {
 		runSteadyTraffic(client, url, steadyCycleLength)
 
 		log.Println("phase: rapid-success burst")
-		runBurstPhase(client, url, pressureWorkers, pressureDuration, generateRapidSuccessEvent)
+		runBurstPhase(client, url, pressureWorkers, pressureDuration, func(id int) domain.Event {
+			return generateBurstEvent(id, generateRapidSuccessEvent, generateMixedEvent)
+		})
 		time.Sleep(recoveryDuration)
 
 		log.Println("phase: bruteforce burst")
-		runBurstPhase(client, url, pressureWorkers, pressureDuration, generateBruteforceEvent)
+		runBurstPhase(client, url, pressureWorkers, pressureDuration, func(id int) domain.Event {
+			return generateBurstEvent(id, generateBruteforceEvent, generateMixedEvent)
+		})
 		time.Sleep(recoveryDuration)
 
 		log.Println("phase: credential-stuffing burst")
-		runBurstPhase(client, url, pressureWorkers, pressureDuration, generateCredentialStuffingEvent)
+		runBurstPhase(client, url, pressureWorkers, pressureDuration, func(id int) domain.Event {
+			return generateBurstEvent(id, generateCredentialStuffingEvent, generateMixedEvent)
+		})
 		time.Sleep(recoveryDuration)
 	}
 }
@@ -95,6 +103,13 @@ func runBurstPhase(client *http.Client, url string, workers int, duration time.D
 	<-time.After(duration)
 	close(stop)
 	wg.Wait()
+}
+
+func generateBurstEvent(workerID int, malicious func(int) domain.Event, benign func() domain.Event) domain.Event {
+	if rand.Intn(100) < maliciousBurstRatio {
+		return malicious(workerID)
+	}
+	return benign()
 }
 
 func generateMixedEvent() domain.Event {
