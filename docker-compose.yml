@@ -22,9 +22,12 @@ services:
       LOGIN_VALIDATOR_HTTP_ADDR: :8080
       LOGIN_VALIDATOR_METRICS_ADDR: :2112
       LOGIN_VALIDATOR_RULES_PATH: /app/rules.yaml
+      LOGIN_VALIDATOR_LOG_PATH: /logs/login_validator.log
     ports:
       - "8080:8080"
       - "2112:2112"
+    volumes:
+      - ./logs:/logs:Z
     restart: unless-stopped
 
   prometheus:
