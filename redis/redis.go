@@ -124,6 +124,6 @@ func (c *Client) recordIP(event domain.Event) {
 		return
 	}
 	if added == 1 {
-		domain.Alert(fmt.Sprintf("Login detected from new IP %s for user %s", event.SourceIP, event.UserID))
+		log.Printf("Login observed from new IP %s for user %s", event.SourceIP, event.UserID)
 	}
 }

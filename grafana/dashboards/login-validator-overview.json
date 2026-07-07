@@ -110,19 +110,19 @@
     {
       "id": 4,
       "type": "timeseries",
-      "title": "Alerts by rule",
+      "title": "Alert active by rule",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(login_detection_alerts_total[$__rate_interval])) by (rule)",
+          "expr": "login_detection_alert_active",
           "legendFormat": "{{rule}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps"
+          "unit": "short"
         },
         "overrides": []
       },

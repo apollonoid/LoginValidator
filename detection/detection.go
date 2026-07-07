@@ -54,6 +54,12 @@ const (
 )
 
 var metricsServerOnce sync.Once
+var alertActiveResetters = make(map[string]*time.Timer)
+var alertActiveMu sync.Mutex
+var alertSuppressionTimers = make(map[string]*time.Timer)
+var alertSuppressionMu sync.Mutex
+
+const alertActiveHoldDuration = 15 * time.Second
 
 var (
 	loginEventsTotal = promauto.NewCounterVec(
@@ -67,7 +73,15 @@ var (
 	detectionsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "login_detection_alerts_total",
-			Help: "Total number of detection alerts raised by rule type.",
+			Help: "Total number of alert firings raised by rule type.",
+		},
+		[]string{"rule"},
+	)
+
+	alertActive = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "login_detection_alert_active",
+			Help: "Current alert state by rule. Set to 1 when an alert fires and reset to 0 after a short hold period.",
 		},
 		[]string{"rule"},
 	)
@@ -147,6 +161,9 @@ func (p *Processor) userRapidSuccessfulLogin(event domain.Event) {
 			log.Println("Error retrieving login IPs")
 			return
 		}
+		if !shouldFireAlert(alertCooldownKey(ruleRapidSuccessfulLogin, event.UserID), rule.WindowDuration) {
+			return
+		}
 		domain.Alert(
 			fmt.Sprintf(
 				"Rapid successful logins detected: %d unique IPs for user '%s' within %s — IPs: %v",
@@ -157,6 +174,7 @@ func (p *Processor) userRapidSuccessfulLogin(event domain.Event) {
 			),
 		)
 		detectionsTotal.WithLabelValues(ruleRapidSuccessfulLogin).Inc()
+		pulseAlertActive(ruleRapidSuccessfulLogin)
 	}
 }
 
@@ -178,6 +196,9 @@ func (p *Processor) bruteforceLogin(event domain.Event, ruleName string, rule Ru
 		log.Println("Redis Expire error:", err)
 	}
 	if count >= rule.Threshold {
+		if !shouldFireAlert(alertCooldownKey(ruleName, event.SourceIP), rule.WindowDuration) {
+			return
+		}
 		domain.Alert(
 			fmt.Sprintf(
 				"Possible bruteforce login attempts detected: %d attempts from IP %s within %s",
@@ -187,6 +208,7 @@ func (p *Processor) bruteforceLogin(event domain.Event, ruleName string, rule Ru
 			),
 		)
 		detectionsTotal.WithLabelValues(ruleName).Inc()
+		pulseAlertActive(ruleName)
 	}
 }
 
@@ -219,6 +241,9 @@ func (p *Processor) credentialStuffing(event domain.Event) {
 		return
 	}
 	if count >= rule.Threshold {
+		if !shouldFireAlert(alertCooldownKey(ruleCredentialStuffing, event.SourceIP), rule.WindowDuration) {
+			return
+		}
 		domain.Alert(fmt.Sprintf(
 			"Credential stuffing suspected: IP %s attempted logins against %d different users within %s",
 			event.SourceIP,
@@ -226,7 +251,42 @@ func (p *Processor) credentialStuffing(event domain.Event) {
 			rule.WindowDuration,
 		))
 		detectionsTotal.WithLabelValues(ruleCredentialStuffing).Inc()
+		pulseAlertActive(ruleCredentialStuffing)
 	}
+}
+
+func pulseAlertActive(rule string) {
+	alertActive.WithLabelValues(rule).Set(1)
+
+	alertActiveMu.Lock()
+	defer alertActiveMu.Unlock()
+
+	if timer, ok := alertActiveResetters[rule]; ok {
+		timer.Stop()
+	}
+	alertActiveResetters[rule] = time.AfterFunc(alertActiveHoldDuration, func() {
+		alertActive.WithLabelValues(rule).Set(0)
+	})
+}
+
+func alertCooldownKey(ruleName, subject string) string {
+	return ruleName + ":" + subject
+}
+
+func shouldFireAlert(key string, hold time.Duration) bool {
+	alertSuppressionMu.Lock()
+	defer alertSuppressionMu.Unlock()
+
+	if _, ok := alertSuppressionTimers[key]; ok {
+		return false
+	}
+
+	alertSuppressionTimers[key] = time.AfterFunc(hold, func() {
+		alertSuppressionMu.Lock()
+		delete(alertSuppressionTimers, key)
+		alertSuppressionMu.Unlock()
+	})
+	return true
 }
 
 func (p *Processor) recordSystemError(component, operation string) {
@@ -245,6 +305,10 @@ func StartMetricsServer(addr string) {
 			detectionsTotal.WithLabelValues(ruleBruteforceLoginShort).Add(0)
 			detectionsTotal.WithLabelValues(ruleBruteforceLoginLong).Add(0)
 			detectionsTotal.WithLabelValues(ruleCredentialStuffing).Add(0)
+			alertActive.WithLabelValues(ruleRapidSuccessfulLogin).Add(0)
+			alertActive.WithLabelValues(ruleBruteforceLoginShort).Add(0)
+			alertActive.WithLabelValues(ruleBruteforceLoginLong).Add(0)
+			alertActive.WithLabelValues(ruleCredentialStuffing).Add(0)
 			systemErrorsTotal.WithLabelValues("redis", "sadd").Add(0)
 			systemErrorsTotal.WithLabelValues("redis", "expire").Add(0)
 			systemErrorsTotal.WithLabelValues("redis", "scard").Add(0)
